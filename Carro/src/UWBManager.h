@@ -1,4 +1,5 @@
 #pragma once
+#include "UWBCore.h"
 
 // Configuración del número de anchors (2 o 3)
 #define NUM_ANCHORS 3  // Cambiar a 2 para usar solo 2 anchors
@@ -23,9 +24,25 @@ class KalmanFilter1D {
     }
 };
 
-// Inicializa el sistema UWB (debe llamarse en setup)
+// Inicializa el sistema UWB dual-core (debe llamarse en setup)
 void UWBManager_setup();
 
-// Realiza una medición, filtra y calcula la posición (debe llamarse periódicamente)
+// Procesa los datos del Core 0 y calcula la posición (Core 1)
 // Devuelve true si la posición es válida, false si no.
 bool UWBManager_update(float &tag_x, float &tag_y);
+
+// Obtiene las distancias individuales de cada anchor
+// distances[0] = distancia anchor 1, distances[1] = distancia anchor 2, etc.
+void UWBManager_getDistances(float distances[NUM_ANCHORS]);
+
+// Obtiene el estado de conexión de cada anchor
+void UWBManager_getAnchorStatus(bool status[NUM_ANCHORS]);
+
+// Obtiene la frecuencia de medición actual en Hz
+float UWBManager_getMeasurementFrequency();
+
+// Obtiene el número total de mediciones realizadas
+unsigned long UWBManager_getMeasurementCount();
+
+// Obtiene el timestamp de la última medición
+unsigned long UWBManager_getLastMeasurementTime();

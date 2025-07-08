@@ -12,21 +12,14 @@ static const unsigned long COMMAND_TIMEOUT = 2000; // 2 segundos
 void executeMotorCommand(const MotorCommand& cmd);
 
 void setupMotorController() {
-    // Inicializar comunicación con Raspberry Pi
     RPiComm_setup();
-    
-    // Inicializar sistema de motores PWM
     setupMotorPWMTest();
-    disableMotors(); // Comenzar con motores desactivados por seguridad
+    disableMotors();
     
     motorsEnabled = false;
     lastCommandTime = millis();
     
-    Serial.println("[MotorController] Sistema inicializado");
-    Serial.println("  - Comunicación UART2 con RPi: OK");
-    Serial.println("  - Sistema PWM de motores: OK");
-    Serial.println("  - Sensores de corriente y voltaje: OK");
-    Serial.println("  - Motores deshabilitados por seguridad");
+    Serial.println("[MotorController] Initialized");
 }
 
 void processSerialCommands() {
@@ -67,32 +60,27 @@ void executeMotorCommand(const MotorCommand& cmd) {
         return;
     }
     
-    // Habilitar motores si no están habilitados
     if (!motorsEnabled) {
         enableMotors();
         motorsEnabled = true;
-        Serial.println("[MotorController] Motores habilitados");
     }
     
     // Mapear velocidades de -255/+255 a -100/+100
     int left_speed = map(cmd.motor_left_speed, -255, 255, -100, 100);
     int right_speed = map(cmd.motor_right_speed, -255, 255, -100, 100);
     
-    // Aplicar velocidades a los motores usando las funciones disponibles
+    // Aplicar velocidades a los motores
     if (left_speed >= 0) {
-        setMotorL(abs(left_speed), true);  // true = adelante
+        setMotorL(abs(left_speed), true);
     } else {
-        setMotorL(abs(left_speed), false); // false = atrás
+        setMotorL(abs(left_speed), false);
     }
     
     if (right_speed >= 0) {
-        setMotorR(abs(right_speed), true);  // true = adelante
+        setMotorR(abs(right_speed), true);
     } else {
-        setMotorR(abs(right_speed), false); // false = atrás
+        setMotorR(abs(right_speed), false);
     }
-    
-    Serial.printf("[MotorController] Comando ejecutado: L=%d%%, R=%d%%\n", 
-                 left_speed, right_speed);
 }
 
 void setMotorSpeed(uint8_t motor_id, int8_t speed) {
@@ -118,11 +106,8 @@ void setMotorSpeed(uint8_t motor_id, int8_t speed) {
 }
 
 void emergencyStop() {
-    // Parar todos los motores inmediatamente
     disableMotors();
     motorsEnabled = false;
-    
-    Serial.println("[MotorController] PARADA DE EMERGENCIA");
     
     // Notificar a la Raspberry Pi
     JsonDocument doc;

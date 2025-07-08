@@ -3,126 +3,85 @@
 #include <Adafruit_MCP23008.h>
 #include "DW3000.h"
 #include "UWBManager.h"
+#include "UWBCore.h"
 #include "MotorController.h"
 #include "RPiComm.h"
+#include "WiFiOTA.h"
 
 void setup() {
-    Serial.begin(115200);
-    delay(2000); // Esperar más tiempo a que se establezca la conexión serie
+    Serial.begin(2000000);
+    delay(1000);
     
-    Serial.println("=== INICIANDO SISTEMA UWB COMPLETO ===");
-    Serial.println("1. Serial funcionando OK");
-    Serial.flush(); // Asegurar que se envíe
-    
-    // Test básico de GPIO
-    Serial.println("2. Test básico de GPIO...");
-    pinMode(2, OUTPUT); // LED interno del ESP32
-    digitalWrite(2, HIGH);
-    delay(500);
-    digitalWrite(2, LOW);
-    Serial.println("   ✅ GPIO funcionando");
-    Serial.flush();
+    Serial.println("=== Golf Cart UWB System Starting ===");
     
     // Inicializar I2C
-    Serial.println("3. Iniciando I2C en GPIO5 (SDA) y GPIO4 (SCL)...");
-    Serial.flush();
-    
     Wire.begin(5, 4); // SDA=GPIO5, SCL=GPIO4
-    Wire.setClock(100000); // 100kHz para mayor compatibilidad
-    delay(100);
+    Wire.setClock(500000);
     
-    Serial.println("   ✅ I2C iniciado");
-    Serial.flush();
+    // Inicializar WiFi y OTA
+    WiFiOTA_setup();
     
-    // Escanear dispositivos I2C
-    Serial.println("4. Escaneando dispositivos I2C...");
-    Serial.flush();
-    
-    int deviceCount = 0;
-    for (byte address = 1; address < 127; address++) {
-        Wire.beginTransmission(address);
-        byte result = Wire.endTransmission();
-        if (result == 0) {
-            Serial.printf("   Dispositivo encontrado en 0x%02X\n", address);
-            deviceCount++;
-            Serial.flush();
-        }
-        delay(10); // Pequeña pausa entre escaneos
-    }
-    
-    if (deviceCount == 0) {
-        Serial.println("   ❌ No se encontraron dispositivos I2C");
-    } else {
-        Serial.printf("   ✅ %d dispositivo(s) I2C encontrado(s)\n", deviceCount);
-    }
-    Serial.flush();
-    
-    // Inicializar DW3000 MCP23008 support
-    Serial.println("5. Inicializando DW3000 MCP23008 support...");
-    Serial.flush();
-    
-    if (DW3000Class::initMCP23008()) {
-        Serial.println("   ✅ DW3000 MCP23008 support inicializado");
-    } else {
-        Serial.println("   ❌ Error en DW3000 MCP23008 support");
-        Serial.flush();
+    // Inicializar sistemas UWB (ahora dual-core)
+    if (!DW3000Class::initMCP23008()) {
+        Serial.println("ERROR: MCP23008 initialization failed");
         return;
     }
     
-    // Inicializar UWBManager
-    Serial.println("6. Inicializando UWBManager con 3 anchors...");
-    Serial.flush();
-    
+    // UWBManager_setup ahora inicializa el Core 0 y arranca la tarea UWB
     UWBManager_setup();
-    
-    Serial.println("   ✅ UWBManager inicializado correctamente");
-    Serial.flush();
-    
-    // Inicializar Motor Controller
-    Serial.println("7. Inicializando Motor Controller (UART2)...");
-    Serial.flush();
-    
     setupMotorController();
     
-    Serial.println("   ✅ Motor Controller inicializado correctamente");
-    Serial.flush();
-    
-    Serial.println("=== SISTEMA UWB + MOTOR CONTROLLER LISTO ===");
-    Serial.println("Modo: ESP32 como esclavo, RPi como maestro");
-    Serial.println("UART2: Comandos de motores desde RPi");
-    Serial.println("Serial: Monitor de debug");
-    Serial.flush();
+    Serial.println("=== Dual-Core UWB System Ready ===");
+    Serial.println("Core 0: UWB measurements (high-speed)");
+    Serial.println("Core 1: Processing, WiFi, motors, display");
 }
 
 void loop() {
+    // Manejar WiFi y OTA
+    WiFiOTA_loop();
+    
     // Procesar comandos de la Raspberry Pi
     processSerialCommands();
     
-    // Obtener datos UWB actualizados
+    // Obtener y enviar datos UWB
     float tag_x = 0, tag_y = 0;
     bool uwb_valid = UWBManager_update(tag_x, tag_y);
     
-    // Enviar datos UWB automáticamente cada segundo (opcional)
+    // Obtener distancias individuales
+    float distances[NUM_ANCHORS];
+    bool anchor_status[NUM_ANCHORS];
+    UWBManager_getDistances(distances);
+    UWBManager_getAnchorStatus(anchor_status);
+    
+    // Mostrar información UWB en consola cada 3 segundos (menos frecuente)
+    static unsigned long lastDisplay = 0;
+    if (millis() - lastDisplay > 3000) {
+        float frequency = UWBManager_getMeasurementFrequency();
+        unsigned long count = UWBManager_getMeasurementCount();
+        
+        Serial.printf("[UWB] Freq: %.1fHz (%lu med) | ", frequency, count);
+        
+        for (int i = 0; i < NUM_ANCHORS; i++) {
+            Serial.printf("A%d:", i+1);
+            if (anchor_status[i]) {
+                Serial.printf("%.1fcm ", distances[i]);
+            } else {
+                Serial.print("FAIL ");
+            }
+        }
+        
+        if (uwb_valid) {
+            Serial.printf("| Pos: X=%.2fm Y=%.2fm", tag_x, tag_y);
+        } else {
+            Serial.print("| Pos: INVALID");
+        }
+        Serial.println();
+        lastDisplay = millis();
+    }
+    
     static unsigned long lastUWBSend = 0;
     if (millis() - lastUWBSend > 1000) {
         sendUWBData(tag_x, tag_y, uwb_valid);
         lastUWBSend = millis();
     }
-    
-    // Debug por serial principal (menos frecuente)
-    static unsigned long lastDebug = 0;
-    if (millis() - lastDebug > 2000) {
-        if (uwb_valid) {
-            Serial.printf("[DEBUG] Posición: X=%.3f m, Y=%.3f m\n", tag_x, tag_y);
-        } else {
-            Serial.println("[DEBUG] Esperando mediciones UWB válidas...");
-        }
-        lastDebug = millis();
-    }
-    
-    // LED de actividad
-    digitalWrite(2, HIGH);
-    delay(10);
-    digitalWrite(2, LOW);
-    delay(40);
 }
