@@ -44,6 +44,11 @@ struct MotorCommand {
 // Funciones públicas
 void RPiComm_setup();
 void RPiComm_sendSystemData(float tag_x, float tag_y, bool uwb_valid);
+void RPiComm_sendUWBData(float distances[3], bool anchor_status[3], 
+                        float tag_x, float tag_y, bool pos_valid, 
+                        float frequency, unsigned long count);
+void RPiComm_sendRawUWBData(float distances[3], bool anchor_status[3], 
+                           float frequency, unsigned long count);
 bool RPiComm_receiveCommand(MotorCommand &cmd);
 float RPiComm_readBatteryVoltage();
 float RPiComm_readCurrentSensor(int pin);

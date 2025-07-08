@@ -1,4 +1,5 @@
 #include "RPiComm.h"
+#include "MotorController.h"
 #include <ArduinoJson.h>
 
 // UART2 para comunicación con Raspberry Pi
@@ -48,6 +49,81 @@ void RPiComm_sendSystemData(float tag_x, float tag_y, bool uwb_valid) {
     doc["sensors"]["battery_voltage"] = battery_voltage;
     
     // Enviar JSON
+    String output;
+    serializeJson(doc, output);
+    RPiSerial.println(output);
+}
+
+void RPiComm_sendUWBData(float distances[3], bool anchor_status[3], 
+                        float tag_x, float tag_y, bool pos_valid, 
+                        float frequency, unsigned long count) {
+    // Crear JSON con datos UWB completos
+    JsonDocument doc;
+    doc["type"] = "uwb_data";
+    doc["timestamp"] = millis();
+    
+    // Datos de distancias raw de cada anchor
+    doc["distances"]["a1"] = anchor_status[0] ? distances[0] : NAN;
+    doc["distances"]["a2"] = anchor_status[1] ? distances[1] : NAN;
+    doc["distances"]["a3"] = anchor_status[2] ? distances[2] : NAN;
+    
+    // Estado de cada anchor
+    doc["anchor_status"]["a1"] = anchor_status[0];
+    doc["anchor_status"]["a2"] = anchor_status[1];
+    doc["anchor_status"]["a3"] = anchor_status[2];
+    
+    // Posición calculada por ESP32
+    doc["position"]["valid"] = pos_valid;
+    if (pos_valid) {
+        doc["position"]["x"] = tag_x;
+        doc["position"]["y"] = tag_y;
+    } else {
+        doc["position"]["x"] = nullptr;
+        doc["position"]["y"] = nullptr;
+    }
+    
+    // Estadísticas de rendimiento
+    doc["stats"]["frequency"] = frequency;
+    doc["stats"]["count"] = count;
+    
+    // Enviar JSON
+    String output;
+    serializeJson(doc, output);
+    RPiSerial.println(output);
+}
+
+void RPiComm_sendRawUWBData(float distances[3], bool anchor_status[3], 
+                           float frequency, unsigned long count) {
+    // Crear JSON completo con UWB + datos del sistema
+    JsonDocument doc;
+    doc["type"] = "system_data";
+    doc["timestamp"] = millis();
+    
+    // === DATOS UWB ===
+    // Distancias raw de cada anchor (en cm)
+    doc["uwb"]["d1"] = anchor_status[0] ? distances[0] : NAN;
+    doc["uwb"]["d2"] = anchor_status[1] ? distances[1] : NAN;
+    doc["uwb"]["d3"] = anchor_status[2] ? distances[2] : NAN;
+    
+    // Estado de conexión de cada anchor
+    doc["uwb"]["s1"] = anchor_status[0];
+    doc["uwb"]["s2"] = anchor_status[1];
+    doc["uwb"]["s3"] = anchor_status[2];
+    
+    // Frecuencia de medición del Core 0
+    doc["uwb"]["freq"] = frequency;
+    doc["uwb"]["count"] = count;
+    
+    // === DATOS DEL SISTEMA ===
+    // Voltaje de batería
+    doc["power"]["battery_v"] = getBatteryVoltage();
+    
+    // Corrientes de motores
+    doc["power"]["motor_l_a"] = getMotorCurrent(0);  // Motor izquierdo
+    doc["power"]["motor_r_a"] = getMotorCurrent(1);  // Motor derecho
+    doc["power"]["total_a"] = getTotalCurrent();     // Corriente total
+    
+    // Enviar JSON completo
     String output;
     serializeJson(doc, output);
     RPiSerial.println(output);

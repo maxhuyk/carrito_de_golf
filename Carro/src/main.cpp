@@ -43,11 +43,7 @@ void loop() {
     // Procesar comandos de la Raspberry Pi
     processSerialCommands();
     
-    // Obtener y enviar datos UWB
-    float tag_x = 0, tag_y = 0;
-    bool uwb_valid = UWBManager_update(tag_x, tag_y);
-    
-    // Obtener distancias individuales
+    // Solo obtener distancias raw para enviar a la RPi
     float distances[NUM_ANCHORS];
     bool anchor_status[NUM_ANCHORS];
     UWBManager_getDistances(distances);
@@ -69,19 +65,16 @@ void loop() {
                 Serial.print("FAIL ");
             }
         }
-        
-        if (uwb_valid) {
-            Serial.printf("| Pos: X=%.2fm Y=%.2fm", tag_x, tag_y);
-        } else {
-            Serial.print("| Pos: INVALID");
-        }
         Serial.println();
         lastDisplay = millis();
     }
     
+    // Enviar datos raw a la RPi para que ella haga trilateración y control
     static unsigned long lastUWBSend = 0;
-    if (millis() - lastUWBSend > 1000) {
-        sendUWBData(tag_x, tag_y, uwb_valid);
+    if (millis() - lastUWBSend > 50) { // 20Hz envío a RPi
+        float frequency = UWBManager_getMeasurementFrequency();
+        unsigned long count = UWBManager_getMeasurementCount();
+        RPiComm_sendRawUWBData(distances, anchor_status, frequency, count);
         lastUWBSend = millis();
     }
 }
