@@ -3,6 +3,8 @@
 #include <Adafruit_MCP23008.h>
 #include "DW3000.h"
 #include "UWBManager.h"
+#include "MotorController.h"
+#include "RPiComm.h"
 
 void setup() {
     Serial.begin(115200);
@@ -76,23 +78,51 @@ void setup() {
     Serial.println("   ✅ UWBManager inicializado correctamente");
     Serial.flush();
     
-    Serial.println("=== SISTEMA UWB LISTO ===");
-    Serial.println("Iniciando mediciones de posición...");
+    // Inicializar Motor Controller
+    Serial.println("7. Inicializando Motor Controller (UART2)...");
+    Serial.flush();
+    
+    setupMotorController();
+    
+    Serial.println("   ✅ Motor Controller inicializado correctamente");
+    Serial.flush();
+    
+    Serial.println("=== SISTEMA UWB + MOTOR CONTROLLER LISTO ===");
+    Serial.println("Modo: ESP32 como esclavo, RPi como maestro");
+    Serial.println("UART2: Comandos de motores desde RPi");
+    Serial.println("Serial: Monitor de debug");
     Serial.flush();
 }
 
 void loop() {
-    float tag_x = 0, tag_y = 0;
+    // Procesar comandos de la Raspberry Pi
+    processSerialCommands();
     
-    if (UWBManager_update(tag_x, tag_y)) {
-        Serial.printf("Posición: X=%.3f m, Y=%.3f m\n", tag_x, tag_y);
-    } else {
-        Serial.println("Esperando mediciones válidas...");
+    // Obtener datos UWB actualizados
+    float tag_x = 0, tag_y = 0;
+    bool uwb_valid = UWBManager_update(tag_x, tag_y);
+    
+    // Enviar datos UWB automáticamente cada segundo (opcional)
+    static unsigned long lastUWBSend = 0;
+    if (millis() - lastUWBSend > 1000) {
+        sendUWBData(tag_x, tag_y, uwb_valid);
+        lastUWBSend = millis();
+    }
+    
+    // Debug por serial principal (menos frecuente)
+    static unsigned long lastDebug = 0;
+    if (millis() - lastDebug > 2000) {
+        if (uwb_valid) {
+            Serial.printf("[DEBUG] Posición: X=%.3f m, Y=%.3f m\n", tag_x, tag_y);
+        } else {
+            Serial.println("[DEBUG] Esperando mediciones UWB válidas...");
+        }
+        lastDebug = millis();
     }
     
     // LED de actividad
     digitalWrite(2, HIGH);
-    delay(100);
+    delay(10);
     digitalWrite(2, LOW);
-    delay(400);
+    delay(40);
 }
