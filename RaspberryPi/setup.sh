@@ -24,7 +24,7 @@ sudo apt update && sudo apt upgrade -y
 
 # Install Python dependencies
 echo "Installing Python dependencies..."
-sudo apt install -y python3-pip python3-venv python3-dev
+sudo apt install -y python3-pip python3-venv python3-dev python3-tk
 
 # Create virtual environment
 echo "Creating Python virtual environment..."
@@ -83,7 +83,33 @@ EOF
 
 chmod +x start_golf_cart.sh
 
-# Create monitoring script
+# Create GUI launcher script
+cat > start_gui.sh << 'EOF'
+#!/bin/bash
+# GUI launcher script
+
+cd "$(dirname "$0")"
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Check if display is available
+if [ -z "$DISPLAY" ]; then
+    echo "Warning: No display detected."
+    echo "For GUI operation, you need:"
+    echo "1. Desktop environment (LXDE, XFCE, etc.)"
+    echo "2. VNC server enabled, or"
+    echo "3. SSH with X11 forwarding: ssh -X user@raspberry_pi"
+    exit 1
+fi
+
+# Start GUI
+echo "Starting Golf Cart Control GUI..."
+python3 start_gui.py
+
+EOF
+
+chmod +x start_gui.sh
 cat > start_monitor.sh << 'EOF'
 #!/bin/bash
 # Real-time monitoring script
@@ -165,8 +191,13 @@ echo "=================================="
 echo ""
 echo "Available scripts:"
 echo "  ./start_golf_cart.sh  - Start main control system"
+echo "  ./start_gui.sh        - Start graphical interface"
 echo "  ./start_monitor.sh    - Start real-time monitor (requires GUI)"
 echo "  ./run_tests.sh        - Run system tests"
+echo ""
+echo "Demo and testing:"
+echo "  python3 demo_gui.py   - Test GUI with synthetic data"
+echo "  python3 test_kalman.py - Test Kalman filter"
 echo ""
 echo "Configuration:"
 echo "  Edit config.json to adjust system parameters"
