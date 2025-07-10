@@ -121,7 +121,6 @@ void RPiComm_sendRawUWBData(float distances[3], bool anchor_status[3],
     // Corrientes de motores
     doc["power"]["motor_l_a"] = getMotorCurrent(0);  // Motor izquierdo
     doc["power"]["motor_r_a"] = getMotorCurrent(1);  // Motor derecho
-    doc["power"]["total_a"] = getTotalCurrent();     // Corriente total
     
     // Enviar JSON completo
     String output;

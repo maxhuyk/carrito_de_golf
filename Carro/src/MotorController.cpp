@@ -1,19 +1,127 @@
 #include "MotorController.h"
-#include "MotorPWMTest.h"
 #include "RPiComm.h"
 #include <ArduinoJson.h>
 
+// ========== MOTOR PWM DEFINITIONS ==========
+// Pines para los DRV8701 (ambos motores)
+#define ENABLE_MOTORS 14  // Pin único de enable para ambos motores
+#define PWML1 26
+#define PWML2 25
+#define CURRL 36  // SENSOR_VP
+// Pines para el DRV8701 (motor derecho)
+#define PWMR1 33
+#define PWMR2 32
+#define CURRR 39  // SENSOR_VN
+
+// --- PWM ESP32 ---
+#define PWM_FREQ 20000
+#define PWM_RES 8
+#define CH_L1 0
+#define CH_L2 1
+#define CH_R1 2
+#define CH_R2 3
+
 // Variables de estado
 static bool motorsEnabled = false;
+static bool pwm_initialized = false;
 static unsigned long lastCommandTime = 0;
 static const unsigned long COMMAND_TIMEOUT = 2000; // 2 segundos
 
 // Declaración de función
 void executeMotorCommand(const MotorCommand& cmd);
 
+// ========== MOTOR PWM BASE FUNCTIONS ==========
+// Función para desactivar completamente los motores
+void disableMotors() {
+    digitalWrite(ENABLE_MOTORS, LOW);
+    ledcWrite(CH_L1, 0);
+    ledcWrite(CH_L2, 0);
+    ledcWrite(CH_R1, 0);
+    ledcWrite(CH_R2, 0);
+    Serial.println("[PWM] Motores desactivados completamente");
+}
+
+// Función para activar los motores
+void enableMotors() {
+    digitalWrite(ENABLE_MOTORS, HIGH);
+    Serial.println("[PWM] Motores activados");
+}
+
+// pwm: 0 a 100, dir: true=adelante, false=atrás
+void setMotorL(int pwm, bool dir) {
+    pwm = constrain(pwm, 0, 100);
+    int duty = map(pwm, 0, 100, 0, 255);
+    
+    // Solo activar si hay PWM, sino mantener el estado actual
+    if (pwm > 0) {
+        digitalWrite(ENABLE_MOTORS, HIGH);
+    }
+    
+    if (dir) {
+        ledcWrite(CH_L1, duty);
+        ledcWrite(CH_L2, 0);
+    } else {
+        ledcWrite(CH_L1, 0);
+        ledcWrite(CH_L2, duty);
+    }
+}
+
+void setMotorR(int pwm, bool dir) {
+    pwm = constrain(pwm, 0, 100);
+    int duty = map(pwm, 0, 100, 0, 255);
+    
+    // Solo activar si hay PWM, sino mantener el estado actual
+    if (pwm > 0) {
+        digitalWrite(ENABLE_MOTORS, HIGH);
+    }
+    
+    if (dir) {
+        ledcWrite(CH_R1, duty);
+        ledcWrite(CH_R2, 0);
+    } else {
+        ledcWrite(CH_R1, 0);
+        ledcWrite(CH_R2, duty);
+    }
+}
+
+// Inicializa los pines de los drivers (sin test)
+void setupMotorPWM() {
+    Serial.println("[PWM] Inicializando pines y PWM...");
+    pinMode(ENABLE_MOTORS, OUTPUT);
+    pinMode(PWML1, OUTPUT);
+    pinMode(PWML2, OUTPUT);
+    pinMode(PWMR1, OUTPUT);
+    pinMode(PWMR2, OUTPUT);
+    digitalWrite(ENABLE_MOTORS, LOW);
+    digitalWrite(PWML1, LOW);
+    digitalWrite(PWML2, LOW);
+    digitalWrite(PWMR1, LOW);
+    digitalWrite(PWMR2, LOW);
+    
+    if (!pwm_initialized) {
+        uint32_t freqL1 = ledcSetup(CH_L1, PWM_FREQ, PWM_RES);
+        uint32_t freqL2 = ledcSetup(CH_L2, PWM_FREQ, PWM_RES);
+        uint32_t freqR1 = ledcSetup(CH_R1, PWM_FREQ, PWM_RES);
+        uint32_t freqR2 = ledcSetup(CH_R2, PWM_FREQ, PWM_RES);
+        ledcAttachPin(PWML1, CH_L1);
+        ledcAttachPin(PWML2, CH_L2);
+        ledcAttachPin(PWMR1, CH_R1);
+        ledcAttachPin(PWMR2, CH_R2);
+        pwm_initialized = true;
+        
+        if (freqL1 == PWM_FREQ && freqL2 == PWM_FREQ && freqR1 == PWM_FREQ && freqR2 == PWM_FREQ) {
+            Serial.println("[PWM] PWM inicializado correctamente");
+        } else {
+            Serial.println("[PWM] ADVERTENCIA: alguna frecuencia PWM no coincide");
+        }
+    }
+}
+
+// ========== MOTOR CONTROLLER FUNCTIONS ==========
+
 void setupMotorController() {
     RPiComm_setup();
-    setupMotorPWMTest();
+    setupMotorPWM();
     disableMotors();
     
     motorsEnabled = false;
@@ -124,7 +232,6 @@ void emergencyStop() {
 #define BATTERY_VOLTAGE_PIN 36    // ADC1_CH0 (VP)
 #define MOTOR_L_CURRENT_PIN 39    // ADC1_CH3 (VN) 
 #define MOTOR_R_CURRENT_PIN 34    // ADC1_CH6
-#define SYSTEM_CURRENT_PIN  35    // ADC1_CH7
 
 // Constantes de calibración (ajustar según tu hardware)
 #define BATTERY_VOLTAGE_SCALE 0.01611  // Escalado para divisor de voltaje (12V -> 3.3V)
@@ -155,16 +262,5 @@ float getMotorCurrent(uint8_t motor_id) {
     float current = (voltage - 2.5) / CURRENT_SCALE;
     
     // Valor absoluto para corriente (dirección no importa aquí)
-    return abs(current);
-}
-
-float getTotalCurrent() {
-    // Leer corriente total del sistema
-    int rawValue = analogRead(SYSTEM_CURRENT_PIN);
-    float voltage = (rawValue / ADC_RESOLUTION) * ADC_REFERENCE;
-    
-    // Convertir a corriente
-    float current = (voltage - 2.5) / CURRENT_SCALE;
-    
     return abs(current);
 }
