@@ -1,0 +1,8 @@
+# Placeholder file to ensure logs directory is created
+# Log files will be automatically generated here
+
+# Example log format:
+# 2025-07-10 15:30:45,123 - INFO - UWB position: x=1.234, y=5.678
+# 2025-07-10 15:30:45,124 - DEBUG - Motor command: left=100, right=-50
+# 2025-07-10 15:30:45,125 - WARNING - Anchor 3 signal lost
+# 2025-07-10 15:30:45,126 - ERROR - UART communication timeout

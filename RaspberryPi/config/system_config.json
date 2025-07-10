@@ -1,0 +1,36 @@
+{
+  "uart": {
+    "port": "/dev/ttyAMA0",
+    "baudrate": 2000000,
+    "timeout": 1.0,
+    "alternative_ports": ["/dev/ttyUSB0", "/dev/ttyACM0"]
+  },
+  "uwb": {
+    "min_valid_anchors": 3,
+    "max_distance": 10000,
+    "outlier_threshold": 500,
+    "measurement_timeout": 5.0
+  },
+  "kalman_filter": {
+    "process_noise": 0.1,
+    "measurement_noise": 50.0,
+    "initial_uncertainty": 1000.0
+  },
+  "motor_control": {
+    "max_speed": 255,
+    "acceleration_limit": 50,
+    "emergency_stop_timeout": 2.0,
+    "command_frequency": 20
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/golf_cart.log",
+    "max_file_size": "10MB",
+    "backup_count": 5
+  },
+  "system": {
+    "main_loop_frequency": 50,
+    "heartbeat_interval": 5.0,
+    "data_save_interval": 1.0
+  }
+}

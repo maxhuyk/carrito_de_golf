@@ -1,0 +1,38 @@
+{
+  "anchors": {
+    "anchor_1": {
+      "id": 1,
+      "position": {
+        "x": -280.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "description": "280mm a la izquierda del centro"
+    },
+    "anchor_2": {
+      "id": 2,
+      "position": {
+        "x": 280.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "description": "280mm a la derecha del centro"
+    },
+    "anchor_3": {
+      "id": 3,
+      "position": {
+        "x": 165.0,
+        "y": -285.0,
+        "z": -140.0
+      },
+      "description": "165mm a la derecha, 285mm hacia atrás, 140mm más abajo"
+    }
+  },
+  "coordinate_system": {
+    "unit": "mm",
+    "origin": "centro del carrito",
+    "x_axis": "positivo hacia la derecha",
+    "y_axis": "positivo hacia adelante", 
+    "z_axis": "positivo hacia arriba"
+  }
+}

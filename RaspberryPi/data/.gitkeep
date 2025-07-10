@@ -1,0 +1,12 @@
+# Placeholder file to ensure data directory is created
+# Data files will be stored here:
+# - Calibration data
+# - Position traces
+# - Performance logs
+# - Backup configurations
+
+# Example files that will be generated:
+# - position_trace_YYYYMMDD_HHMMSS.csv
+# - calibration_data.json  
+# - anchor_rssi_data.csv
+# - motor_performance.csv
