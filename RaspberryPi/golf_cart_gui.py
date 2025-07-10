@@ -399,15 +399,11 @@ class GolfCartGUI:
         key = event.keysym.lower()
         self.pressed_keys.add(key)
         
-        if key == 'w':
-            self._control_motor('forward')
-        elif key == 's':
-            self._control_motor('backward')
-        elif key == 'a':
-            self._control_motor('left')
-        elif key == 'd':
-            self._control_motor('right')
-        elif key == 'space':
+        # Update motor control based on currently pressed keys
+        self._update_motor_from_keys()
+        
+        # Handle non-movement keys
+        if key == 'space':
             self._control_motor('stop')
         elif key == 'u':
             self._increase_speed()
@@ -419,8 +415,26 @@ class GolfCartGUI:
         key = event.keysym.lower()
         self.pressed_keys.discard(key)
         
-        # Stop motors when movement keys are released
-        if key in ['w', 's', 'a', 'd'] and not any(k in self.pressed_keys for k in ['w', 's', 'a', 'd']):
+        # Update motor control based on remaining pressed keys
+        self._update_motor_from_keys()
+    
+    def _update_motor_from_keys(self):
+        """Update motor control based on currently pressed keys"""
+        forward_pressed = 'w' in self.pressed_keys
+        backward_pressed = 's' in self.pressed_keys
+        left_pressed = 'a' in self.pressed_keys
+        right_pressed = 'd' in self.pressed_keys
+        
+        # Determine primary movement
+        if forward_pressed and not backward_pressed:
+            self._control_motor('forward')
+        elif backward_pressed and not forward_pressed:
+            self._control_motor('backward')
+        elif left_pressed and not right_pressed and not (forward_pressed or backward_pressed):
+            self._control_motor('left')
+        elif right_pressed and not left_pressed and not (forward_pressed or backward_pressed):
+            self._control_motor('right')
+        elif not any(k in self.pressed_keys for k in ['w', 's', 'a', 'd']):
             self._control_motor('stop')
     
     def _on_power_change(self, value):
@@ -430,19 +444,51 @@ class GolfCartGUI:
             self.power_label.config(text=str(self.motor_power))
     
     def _control_motor(self, direction: str):
-        """Control motor movement"""
-        if direction == 'forward':
-            self.motor_left = self.motor_power
-            self.motor_right = self.motor_power
-        elif direction == 'backward':
-            self.motor_left = -self.motor_power
-            self.motor_right = -self.motor_power
-        elif direction == 'left':
-            self.motor_left = -self.motor_power // 2
-            self.motor_right = self.motor_power // 2
-        elif direction == 'right':
-            self.motor_left = self.motor_power // 2
-            self.motor_right = -self.motor_power // 2
+        """Control motor movement with smooth steering"""
+        # Check if multiple keys are pressed for combined movements
+        forward_pressed = 'w' in self.pressed_keys
+        backward_pressed = 's' in self.pressed_keys
+        left_pressed = 'a' in self.pressed_keys
+        right_pressed = 'd' in self.pressed_keys
+        
+        if direction == 'forward' or forward_pressed:
+            if left_pressed and not right_pressed:
+                # Forward + Left: smooth turn while moving forward
+                self.motor_left = int(self.motor_power * 0.5)    # Reduce left motor
+                self.motor_right = self.motor_power              # Full right motor
+            elif right_pressed and not left_pressed:
+                # Forward + Right: smooth turn while moving forward
+                self.motor_left = self.motor_power               # Full left motor
+                self.motor_right = int(self.motor_power * 0.5)   # Reduce right motor
+            else:
+                # Pure forward
+                self.motor_left = self.motor_power
+                self.motor_right = self.motor_power
+                
+        elif direction == 'backward' or backward_pressed:
+            if left_pressed and not right_pressed:
+                # Backward + Left: smooth turn while moving backward
+                self.motor_left = int(-self.motor_power * 0.5)   # Reduce left motor
+                self.motor_right = -self.motor_power             # Full right motor
+            elif right_pressed and not left_pressed:
+                # Backward + Right: smooth turn while moving backward
+                self.motor_left = -self.motor_power              # Full left motor
+                self.motor_right = int(-self.motor_power * 0.5)  # Reduce right motor
+            else:
+                # Pure backward
+                self.motor_left = -self.motor_power
+                self.motor_right = -self.motor_power
+                
+        elif direction == 'left' and not (forward_pressed or backward_pressed):
+            # Pure left turn (stationary) - more aggressive
+            self.motor_left = int(-self.motor_power * 0.5)
+            self.motor_right = int(self.motor_power * 0.5)
+            
+        elif direction == 'right' and not (forward_pressed or backward_pressed):
+            # Pure right turn (stationary) - more aggressive
+            self.motor_left = int(self.motor_power * 0.5)
+            self.motor_right = int(-self.motor_power * 0.5)
+            
         elif direction == 'stop':
             self.motor_left = 0
             self.motor_right = 0
