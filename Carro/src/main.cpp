@@ -68,12 +68,14 @@ void loop() {
         lastDisplay = millis();
     }
     
-    // Enviar datos raw a la RPi para que ella haga trilateración y control
-    static unsigned long lastUWBSend = 0;
-    if (millis() - lastUWBSend > 50) { // 20Hz envío a RPi
+    // Enviar datos raw a la RPi solo cuando hay nuevas mediciones
+    static unsigned long lastMeasurementCount = 0;
+    unsigned long currentCount = UWBManager_getMeasurementCount();
+    
+    if (currentCount > lastMeasurementCount) {
+        // Hay nuevas mediciones, enviar a RPi
         float frequency = UWBManager_getMeasurementFrequency();
-        unsigned long count = UWBManager_getMeasurementCount();
-        RPiComm_sendRawUWBData(distances, anchor_status, frequency, count);
-        lastUWBSend = millis();
+        RPiComm_sendRawUWBData(distances, anchor_status, frequency, currentCount);
+        lastMeasurementCount = currentCount;
     }
 }

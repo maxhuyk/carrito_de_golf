@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Golf Cart Control System - Main Entry Point
+Golf Cart Control System - Main Entry Point (Simplified)
 Raspberry Pi control system for UWB-based golf cart navigation
 
 Author: Sistema UWB Carrito de Golf
@@ -14,53 +14,54 @@ import json
 import signal
 import os
 from pathlib import Path
-from typing import Optional
 
-# Add src directory to Python path
-current_dir = Path(__file__).parent
-src_dir = current_dir / 'src'
-sys.path.insert(0, str(src_dir))
+def setup_logging():
+    """Setup logging configuration"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler('golf_cart.log')
+        ]
+    )
 
-# Import our modules
-try:
-    import uart_comm
-    import trilateration
-    
-    UARTCommunicator = uart_comm.UARTCommunicator
-    SystemData = uart_comm.SystemData
-    Trilaterator = trilateration.Trilaterator
-    Position2D = trilateration.Position2D
-    
-except ImportError as e:
-    print(f"Import error: {e}")
-    print(f"Current directory: {current_dir}")
-    print(f"Source directory: {src_dir}")
-    print(f"Source directory exists: {src_dir.exists()}")
-    if src_dir.exists():
-        print(f"Files in src: {list(src_dir.glob('*.py'))}")
-    sys.exit(1)
+def load_config(config_file="config.json"):
+    """Load configuration from JSON file"""
+    try:
+        config_path = Path(__file__).parent / config_file
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                return json.load(f)
+        else:
+            print(f"Config file {config_file} not found, using defaults")
+            return {}
+    except Exception as e:
+        print(f"Error loading config: {e}")
+        return {}
 
 class GolfCartController:
     """Main controller for the golf cart system"""
     
-    def __init__(self, config_file: str = "config.json"):
+    def __init__(self, config):
         """Initialize the golf cart controller"""
         self.logger = logging.getLogger(__name__)
         self.running = False
+        self.config = config
         
-        # Load configuration
-        self.config = self._load_config(config_file)
+        # Import modules dynamically
+        self._import_modules()
         
         # Initialize components
-        self.uart = UARTCommunicator(
-            port=self.config.get('uart_port', '/dev/serial0'),
-            baudrate=self.config.get('uart_baudrate', 2000000)
-        )
-        self.trilaterator = Trilaterator()
+        uart_port = self.config.get('uart_port', '/dev/serial0')
+        uart_baudrate = self.config.get('uart_baudrate', 2000000)
+        
+        self.uart = self.UARTCommunicator(port=uart_port, baudrate=uart_baudrate)
+        self.trilaterator = self.Trilaterator()
         
         # Data storage
-        self.last_position = Position2D(x=0, y=0, valid=False, error=float('inf'))
-        self.last_system_data: Optional[SystemData] = None
+        self.last_position = None
+        self.last_system_data = None
         
         # Statistics
         self.stats = {
@@ -70,19 +71,28 @@ class GolfCartController:
             'start_time': time.time()
         }
     
-    def _load_config(self, config_file: str) -> dict:
-        """Load configuration from JSON file"""
+    def _import_modules(self):
+        """Import required modules dynamically"""
         try:
-            config_path = Path(__file__).parent / config_file
-            if config_path.exists():
-                with open(config_path, 'r') as f:
-                    return json.load(f)
-            else:
-                self.logger.warning(f"Config file {config_file} not found, using defaults")
-                return {}
-        except Exception as e:
-            self.logger.error(f"Error loading config: {e}")
-            return {}
+            # Add src directory to path
+            current_dir = Path(__file__).parent
+            src_dir = current_dir / 'src'
+            sys.path.insert(0, str(src_dir))
+            
+            # Import modules
+            import uart_comm
+            import trilateration
+            
+            self.UARTCommunicator = uart_comm.UARTCommunicator
+            self.SystemData = uart_comm.SystemData
+            self.Trilaterator = trilateration.Trilaterator
+            self.Position2D = trilateration.Position2D
+            
+            self.logger.info("Modules imported successfully")
+            
+        except ImportError as e:
+            self.logger.error(f"Failed to import modules: {e}")
+            sys.exit(1)
     
     def start(self):
         """Start the golf cart control system"""
@@ -111,10 +121,9 @@ class GolfCartController:
         self.running = False
         
         # Send emergency stop
-        self.uart.send_emergency_stop()
-        
-        # Disconnect
-        self.uart.disconnect()
+        if self.uart:
+            self.uart.send_emergency_stop()
+            self.uart.disconnect()
         
         self.logger.info("Golf Cart Controller stopped")
     
@@ -137,7 +146,7 @@ class GolfCartController:
                     # Calculate position
                     position = self._calculate_position(system_data)
                     
-                    if position.valid:
+                    if position and position.valid:
                         self.last_position = position
                         self.stats['valid_positions'] += 1
                         
@@ -145,13 +154,15 @@ class GolfCartController:
                         if self.stats['total_messages'] % 50 == 0:
                             self.logger.info(f"Position: X={position.x:.1f}mm, Y={position.y:.1f}mm")
                     
-                    # TODO: Add navigation and motor control logic here
-                    # This is where you would implement:
-                    # - Path planning
-                    # - Obstacle avoidance  
-                    # - Motor control based on desired trajectory
+                    # Log UWB data periodically
+                    if self.stats['total_messages'] % 20 == 0:
+                        uwb = system_data.uwb
+                        self.logger.info(f"UWB: d1={uwb.distances['d1']:.1f}cm, "
+                                       f"d2={uwb.distances['d2']:.1f}cm, "
+                                       f"d3={uwb.distances['d3']:.1f}cm, "
+                                       f"freq={uwb.frequency:.1f}Hz")
                     
-                    # Example simple motor control (REMOVE IN PRODUCTION)
+                    # Example motor control (REMOVE IN PRODUCTION)
                     if self.stats['total_messages'] % 100 == 0:
                         self._example_motor_control()
                 
@@ -161,51 +172,51 @@ class GolfCartController:
                 self.logger.error(f"Error in control loop: {e}")
                 time.sleep(0.1)
     
-    def _calculate_position(self, system_data: SystemData) -> Position2D:
+    def _calculate_position(self, system_data):
         """Calculate position from UWB data"""
-        uwb = system_data.uwb
-        
-        distances = [uwb.distances['d1'], uwb.distances['d2'], uwb.distances['d3']]
-        anchor_status = [uwb.anchor_status['s1'], uwb.anchor_status['s2'], uwb.anchor_status['s3']]
-        
-        return self.trilaterator.calculate_position(distances, anchor_status)
+        try:
+            uwb = system_data.uwb
+            
+            distances = [uwb.distances['d1'], uwb.distances['d2'], uwb.distances['d3']]
+            anchor_status = [uwb.anchor_status['s1'], uwb.anchor_status['s2'], uwb.anchor_status['s3']]
+            
+            return self.trilaterator.calculate_position(distances, anchor_status)
+        except Exception as e:
+            self.logger.error(f"Position calculation error: {e}")
+            return None
     
     def _example_motor_control(self):
         """Example motor control - REMOVE IN PRODUCTION"""
-        # This is just for testing - implement real control logic
-        self.uart.send_motor_command(0, 0)  # Keep motors stopped
-        self.stats['motor_commands_sent'] += 1
+        try:
+            # This is just for testing - implement real control logic
+            self.uart.send_motor_command(0, 0)  # Keep motors stopped
+            self.stats['motor_commands_sent'] += 1
+        except Exception as e:
+            self.logger.error(f"Motor control error: {e}")
     
-    def get_status(self) -> dict:
+    def get_status(self):
         """Get system status"""
         uptime = time.time() - self.stats['start_time']
-        uart_stats = self.uart.get_statistics()
+        uart_stats = self.uart.get_statistics() if self.uart else {}
         
-        return {
+        status = {
             'running': self.running,
             'uptime': uptime,
             'total_messages': self.stats['total_messages'],
             'valid_positions': self.stats['valid_positions'],
             'motor_commands_sent': self.stats['motor_commands_sent'],
-            'last_position': {
+            'uart_stats': uart_stats
+        }
+        
+        if self.last_position:
+            status['last_position'] = {
                 'x': self.last_position.x,
                 'y': self.last_position.y,
                 'valid': self.last_position.valid,
                 'error': self.last_position.error
-            },
-            'uart_stats': uart_stats
-        }
-
-def setup_logging(level=logging.INFO):
-    """Setup logging configuration"""
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler('golf_cart.log')
-        ]
-    )
+            }
+        
+        return status
 
 def main():
     """Main entry point"""
@@ -215,8 +226,11 @@ def main():
     logger.info("Starting Golf Cart Control System...")
     
     try:
-        controller = GolfCartController()
+        config = load_config()
+        controller = GolfCartController(config)
         controller.start()
+    except KeyboardInterrupt:
+        logger.info("Interrupted by user")
     except Exception as e:
         logger.error(f"Fatal error: {e}")
         return 1
