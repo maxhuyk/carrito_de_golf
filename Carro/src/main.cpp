@@ -3,7 +3,6 @@
 #include <Adafruit_MCP23008.h>
 #include "DW3000.h"
 #include "UWBManager.h"
-#include "UWBCore.h"
 #include "MotorController.h"
 #include "RPiComm.h"
 #include "WiFiOTA.h"
