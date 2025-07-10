@@ -1,0 +1,18 @@
+{
+  "uart_port": "/dev/serial0",
+  "uart_baudrate": 2000000,
+  "log_level": "INFO",
+  "anchor_positions": {
+    "anchor1": {"x": -280.0, "y": 0.0, "z": 0.0},
+    "anchor2": {"x": 280.0, "y": 0.0, "z": 0.0},
+    "anchor3": {"x": 165.0, "y": -285.0, "z": -140.0}
+  },
+  "trilateration": {
+    "max_position_error": 500.0,
+    "min_valid_anchors": 3
+  },
+  "motor_control": {
+    "max_speed": 255,
+    "safety_timeout": 2.0
+  }
+}
