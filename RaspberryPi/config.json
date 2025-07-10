@@ -14,5 +14,11 @@
   "motor_control": {
     "max_speed": 255,
     "safety_timeout": 2.0
+  },
+  "kalman_filter": {
+    "process_noise_pos": 50.0,
+    "process_noise_vel": 100.0,
+    "measurement_noise": 100.0,
+    "initial_uncertainty": 1000.0
   }
 }

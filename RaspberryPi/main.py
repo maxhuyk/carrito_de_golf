@@ -22,23 +22,9 @@ src_dir = current_dir / 'src'
 sys.path.insert(0, str(src_dir))
 
 # Import our modules
-try:
-    import uart_comm
-    import trilateration
-    
-    UARTCommunicator = uart_comm.UARTCommunicator
-    SystemData = uart_comm.SystemData
-    Trilaterator = trilateration.Trilaterator
-    Position2D = trilateration.Position2D
-    
-except ImportError as e:
-    print(f"Import error: {e}")
-    print(f"Current directory: {current_dir}")
-    print(f"Source directory: {src_dir}")
-    print(f"Source directory exists: {src_dir.exists()}")
-    if src_dir.exists():
-        print(f"Files in src: {list(src_dir.glob('*.py'))}")
-    sys.exit(1)
+from src.uart_comm import UARTCommunicator, SystemData
+from src.trilateration import Trilaterator, Position2D
+from src.kalman_filter import KalmanFilter2D, FilteredPosition
 
 class GolfCartController:
     """Main controller for the golf cart system"""
@@ -58,14 +44,25 @@ class GolfCartController:
         )
         self.trilaterator = Trilaterator()
         
+        # Initialize Kalman Filter with configurable parameters
+        kalman_config = self.config.get('kalman_filter', {})
+        self.kalman_filter = KalmanFilter2D(
+            process_noise_pos=kalman_config.get('process_noise_pos', 50.0),
+            process_noise_vel=kalman_config.get('process_noise_vel', 100.0),
+            measurement_noise=kalman_config.get('measurement_noise', 100.0),
+            initial_uncertainty=kalman_config.get('initial_uncertainty', 1000.0)
+        )
+        
         # Data storage
         self.last_position = Position2D(x=0, y=0, valid=False, error=float('inf'))
+        self.last_filtered_position: Optional[FilteredPosition] = None
         self.last_system_data: Optional[SystemData] = None
         
         # Statistics
         self.stats = {
             'total_messages': 0,
             'valid_positions': 0,
+            'filtered_positions': 0,
             'motor_commands_sent': 0,
             'start_time': time.time()
         }
@@ -141,9 +138,21 @@ class GolfCartController:
                         self.last_position = position
                         self.stats['valid_positions'] += 1
                         
+                        # Apply Kalman filtering
+                        filtered_pos = self._apply_kalman_filter(position)
+                        if filtered_pos:
+                            self.last_filtered_position = filtered_pos
+                            self.stats['filtered_positions'] += 1
+                        
                         # Log position periodically
                         if self.stats['total_messages'] % 50 == 0:
-                            self.logger.info(f"Position: X={position.x:.1f}mm, Y={position.y:.1f}mm")
+                            if filtered_pos:
+                                self.logger.info(f"Raw Position: X={position.x:.1f}mm, Y={position.y:.1f}mm")
+                                self.logger.info(f"Filtered Position: X={filtered_pos.x:.1f}mm, Y={filtered_pos.y:.1f}mm, "
+                                               f"Velocity: vX={filtered_pos.vx:.1f}mm/s, vY={filtered_pos.vy:.1f}mm/s, "
+                                               f"Confidence: {filtered_pos.confidence:.2f}")
+                            else:
+                                self.logger.info(f"Position: X={position.x:.1f}mm, Y={position.y:.1f}mm")
                     
                     # TODO: Add navigation and motor control logic here
                     # This is where you would implement:
@@ -170,6 +179,31 @@ class GolfCartController:
         
         return self.trilaterator.calculate_position(distances, anchor_status)
     
+    def _apply_kalman_filter(self, position: Position2D) -> Optional[FilteredPosition]:
+        """Apply Kalman filter to the raw UWB position"""
+        try:
+            # Only filter valid positions
+            if not position.valid:
+                return None
+            
+            # Update Kalman filter with new measurement
+            # Use position error as measurement noise if available
+            if position.error != float('inf'):
+                filtered_pos = self.kalman_filter.process_measurement(
+                    position.x, position.y, position.error
+                )
+            else:
+                filtered_pos = self.kalman_filter.process_measurement(
+                    position.x, position.y
+                )
+            
+            # Return the filtered position (it contains its own validity info)
+            return filtered_pos
+                
+        except Exception as e:
+            self.logger.error(f"Error in Kalman filter: {e}")
+            return None
+
     def _example_motor_control(self):
         """Example motor control - REMOVE IN PRODUCTION"""
         # This is just for testing - implement real control logic
@@ -181,11 +215,21 @@ class GolfCartController:
         uptime = time.time() - self.stats['start_time']
         uart_stats = self.uart.get_statistics()
         
-        return {
+        # Get Kalman filter stats
+        kalman_stats = {
+            'initialized': self.kalman_filter.initialized,
+            'update_count': self.kalman_filter.update_count,
+            'innovation_stats': self.kalman_filter.get_innovation_stats(),
+            'position_uncertainty': self.kalman_filter.get_uncertainty(),
+            'current_speed': self.kalman_filter.get_speed()
+        }
+        
+        status = {
             'running': self.running,
             'uptime': uptime,
             'total_messages': self.stats['total_messages'],
             'valid_positions': self.stats['valid_positions'],
+            'filtered_positions': self.stats['filtered_positions'],
             'motor_commands_sent': self.stats['motor_commands_sent'],
             'last_position': {
                 'x': self.last_position.x,
@@ -193,8 +237,23 @@ class GolfCartController:
                 'valid': self.last_position.valid,
                 'error': self.last_position.error
             },
-            'uart_stats': uart_stats
+            'uart_stats': uart_stats,
+            'kalman_stats': kalman_stats
         }
+        
+        # Add filtered position info if available
+        if self.last_filtered_position:
+            status['last_filtered_position'] = {
+                'x': self.last_filtered_position.x,
+                'y': self.last_filtered_position.y,
+                'vx': self.last_filtered_position.vx,
+                'vy': self.last_filtered_position.vy,
+                'valid': self.last_filtered_position.valid,
+                'confidence': self.last_filtered_position.confidence,
+                'innovation': self.last_filtered_position.innovation
+            }
+        
+        return status
 
 def setup_logging(level=logging.INFO):
     """Setup logging configuration"""
