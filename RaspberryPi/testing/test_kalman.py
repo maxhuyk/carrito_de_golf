@@ -17,8 +17,10 @@ from typing import List, Tuple
 
 # Add src directory to Python path
 current_dir = Path(__file__).parent
-src_dir = current_dir / 'src'
+parent_dir = current_dir.parent
+src_dir = parent_dir / 'src'
 sys.path.insert(0, str(src_dir))
+sys.path.insert(0, str(parent_dir))
 
 from src.kalman_filter import KalmanFilter2D, FilteredPosition
 
