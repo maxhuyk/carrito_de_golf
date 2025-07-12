@@ -26,13 +26,17 @@ volatile bool g_uwb_data_ready = false;
 volatile unsigned long g_uwb_measurement_count = 0;
 volatile unsigned long g_uwb_last_measurement_time = 0;
 
-// Mutex para acceso thread-safe
-static portMUX_TYPE uwbMutex = portMUX_INITIALIZER_UNLOCKED;
+// Semáforo binario para acceso thread-safe entre cores
+static SemaphoreHandle_t uwbSemaphore = NULL;
 
 // Handle de la tarea
 static TaskHandle_t uwbTaskHandle = NULL;
 
 void UWBCore_setup() {
+    // Crear semáforo binario para sincronización entre cores
+    uwbSemaphore = xSemaphoreCreateBinary();
+    xSemaphoreGive(uwbSemaphore); // Inicializar como disponible
+    
     // Inicializar Anchor 1
     anchor1.begin();
     anchor1.hardReset();
@@ -71,19 +75,23 @@ void UWBCore_setup() {
 }
 
 void UWBCore_task(void* parameter) {
+    // Esperar 3 segundos antes de empezar mediciones para estabilización
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    Serial.println("[UWBCore] Iniciando bucle de mediciones...");
+    
     // Tarea dedicada para mediciones UWB en Core 0
     while (true) {
         UWBRawData rawData;
         rawData.timestamp = millis();
         
-        // Medición Anchor 1 - Sin delays
+        // Medición Anchor 1 - Con debug detallado
         float distance1 = NAN;
         int t_roundA = 0, t_replyA = 0, clock_offset = 0, ranging_time = 0;
         long long rx = 0, tx = 0;
         
         anchor1.ds_sendFrame(1);
         tx = anchor1.readTXTimestamp();
-        delayMicroseconds(5000); // 5ms en lugar de 10ms
+        delayMicroseconds(10000); // Incrementar a 10ms para mayor robustez
         if (anchor1.receivedFrameSucc() == 1) {
             anchor1.clearSystemStatus();
             rx = anchor1.readRXTimestamp();
@@ -91,14 +99,35 @@ void UWBCore_task(void* parameter) {
             t_roundA = rx - tx;
             tx = anchor1.readTXTimestamp();
             t_replyA = tx - rx;
-            delayMicroseconds(5000); // 5ms en lugar de 10ms
+            delayMicroseconds(10000); // Incrementar a 10ms para mayor robustez
             if (anchor1.receivedFrameSucc() == 1) {
                 anchor1.clearSystemStatus();
                 clock_offset = anchor1.getRawClockOffset();
                 ranging_time = anchor1.ds_processRTInfo(t_roundA, t_replyA, anchor1.read(0x12, 0x04), anchor1.read(0x12, 0x08), clock_offset);
                 distance1 = anchor1.convertToCM(ranging_time);
                 // Filtrar distancias inválidas
-                if (distance1 < 0 || distance1 > 10000) distance1 = NAN;
+                if (distance1 < 0 || distance1 > 10000) {
+                    static unsigned long lastDebugA1_invalid = 0;
+                    if (millis() - lastDebugA1_invalid > 3000) {
+                        Serial.printf("[UWB] Anchor1: Distancia inválida: %.2f cm (ranging_time=%d)\n", distance1, ranging_time);
+                        lastDebugA1_invalid = millis();
+                    }
+                    distance1 = NAN;
+                }
+            } else {
+                // DEBUG: Segunda recepción falló
+                static unsigned long lastDebugA1_2 = 0;
+                if (millis() - lastDebugA1_2 > 3000) {
+                    Serial.println("[UWB] Anchor1: Segunda recepción FALLÓ");
+                    lastDebugA1_2 = millis();
+                }
+            }
+        } else {
+            // DEBUG: Primera recepción falló
+            static unsigned long lastDebugA1_1 = 0;
+            if (millis() - lastDebugA1_1 > 3000) {
+                Serial.println("[UWB] Anchor1: Primera recepción FALLÓ");
+                lastDebugA1_1 = millis();
             }
         }
         
@@ -106,7 +135,7 @@ void UWBCore_task(void* parameter) {
         float distance2 = NAN;
         anchor2.ds_sendFrame(1);
         tx = anchor2.readTXTimestamp();
-        delayMicroseconds(5000);
+        delayMicroseconds(10000); // Incrementar a 10ms para mayor robustez
         if (anchor2.receivedFrameSucc() == 1) {
             anchor2.clearSystemStatus();
             rx = anchor2.readRXTimestamp();
@@ -114,7 +143,7 @@ void UWBCore_task(void* parameter) {
             t_roundA = rx - tx;
             tx = anchor2.readTXTimestamp();
             t_replyA = tx - rx;
-            delayMicroseconds(5000);
+            delayMicroseconds(10000); // Incrementar a 10ms para mayor robustez
             if (anchor2.receivedFrameSucc() == 1) {
                 anchor2.clearSystemStatus();
                 clock_offset = anchor2.getRawClockOffset();
@@ -122,14 +151,28 @@ void UWBCore_task(void* parameter) {
                 distance2 = anchor2.convertToCM(ranging_time);
                 // Filtrar distancias inválidas
                 if (distance2 < 0 || distance2 > 10000) distance2 = NAN;
+            } else {
+                // DEBUG: Segunda recepción falló
+                static unsigned long lastDebugA2_2 = 0;
+                if (millis() - lastDebugA2_2 > 2000) {
+                    Serial.println("[UWB] Anchor2: Segunda recepción FALLÓ");
+                    lastDebugA2_2 = millis();
+                }
+            }
+        } else {
+            // DEBUG: Primera recepción falló
+            static unsigned long lastDebugA2_1 = 0;
+            if (millis() - lastDebugA2_1 > 2000) {
+                Serial.println("[UWB] Anchor2: Primera recepción FALLÓ");
+                lastDebugA2_1 = millis();
             }
         }
         
-        // Medición Anchor 3
+        // Medición Anchor 3 - Con debug detallado
         float distance3 = NAN;
         anchor3.ds_sendFrame(1);
         tx = anchor3.readTXTimestamp();
-        delayMicroseconds(5000);
+        delayMicroseconds(10000); // Incrementar a 10ms para mayor robustez
         if (anchor3.receivedFrameSucc() == 1) {
             anchor3.clearSystemStatus();
             rx = anchor3.readRXTimestamp();
@@ -137,14 +180,35 @@ void UWBCore_task(void* parameter) {
             t_roundA = rx - tx;
             tx = anchor3.readTXTimestamp();
             t_replyA = tx - rx;
-            delayMicroseconds(5000);
+            delayMicroseconds(10000); // Incrementar a 10ms para mayor robustez
             if (anchor3.receivedFrameSucc() == 1) {
                 anchor3.clearSystemStatus();
                 clock_offset = anchor3.getRawClockOffset();
                 ranging_time = anchor3.ds_processRTInfo(t_roundA, t_replyA, anchor3.read(0x12, 0x04), anchor3.read(0x12, 0x08), clock_offset);
                 distance3 = anchor3.convertToCM(ranging_time);
                 // Filtrar distancias inválidas
-                if (distance3 < 0 || distance3 > 10000) distance3 = NAN;
+                if (distance3 < 0 || distance3 > 10000) {
+                    static unsigned long lastDebugA3_invalid = 0;
+                    if (millis() - lastDebugA3_invalid > 3000) {
+                        Serial.printf("[UWB] Anchor3: Distancia inválida: %.2f cm (ranging_time=%d)\n", distance3, ranging_time);
+                        lastDebugA3_invalid = millis();
+                    }
+                    distance3 = NAN;
+                }
+            } else {
+                // DEBUG: Segunda recepción falló
+                static unsigned long lastDebugA3_2 = 0;
+                if (millis() - lastDebugA3_2 > 3000) {
+                    Serial.println("[UWB] Anchor3: Segunda recepción FALLÓ");
+                    lastDebugA3_2 = millis();
+                }
+            }
+        } else {
+            // DEBUG: Primera recepción falló
+            static unsigned long lastDebugA3_1 = 0;
+            if (millis() - lastDebugA3_1 > 3000) {
+                Serial.println("[UWB] Anchor3: Primera recepción FALLÓ");
+                lastDebugA3_1 = millis();
             }
         }
         
@@ -156,22 +220,57 @@ void UWBCore_task(void* parameter) {
         rawData.valid2 = !isnan(distance2);
         rawData.valid3 = !isnan(distance3);
         
-        // Escribir datos de forma thread-safe
-        portENTER_CRITICAL(&uwbMutex);
-        g_uwb_raw_data.distance1 = rawData.distance1;
-        g_uwb_raw_data.distance2 = rawData.distance2;
-        g_uwb_raw_data.distance3 = rawData.distance3;
-        g_uwb_raw_data.valid1 = rawData.valid1;
-        g_uwb_raw_data.valid2 = rawData.valid2;
-        g_uwb_raw_data.valid3 = rawData.valid3;
-        g_uwb_raw_data.timestamp = rawData.timestamp;
-        g_uwb_data_ready = true;
-        g_uwb_measurement_count++;
-        g_uwb_last_measurement_time = millis();
-        portEXIT_CRITICAL(&uwbMutex);
+        // Escribir datos de forma thread-safe usando semáforo
+        if (xSemaphoreTake(uwbSemaphore, portMAX_DELAY) == pdTRUE) {
+            g_uwb_raw_data.distance1 = rawData.distance1;
+            g_uwb_raw_data.distance2 = rawData.distance2;
+            g_uwb_raw_data.distance3 = rawData.distance3;
+            g_uwb_raw_data.valid1 = rawData.valid1;
+            g_uwb_raw_data.valid2 = rawData.valid2;
+            g_uwb_raw_data.valid3 = rawData.valid3;
+            g_uwb_raw_data.timestamp = rawData.timestamp;
+            g_uwb_data_ready = true;
+            g_uwb_measurement_count++;
+            g_uwb_last_measurement_time = millis();
+            xSemaphoreGive(uwbSemaphore);
+        }
         
-        // Sin delay - máxima velocidad
-        taskYIELD(); // Permitir que otras tareas del mismo core se ejecuten
+        // DEBUG: Detectar cambios súbitos a NAN y estadísticas
+        static bool prev_valid1 = false, prev_valid2 = false, prev_valid3 = false;
+        static unsigned long lastStateChange = 0;
+        static unsigned long total_measurements = 0;
+        static unsigned long failed_measurements[3] = {0, 0, 0};
+        
+        total_measurements++;
+        if (!rawData.valid1) failed_measurements[0]++;
+        if (!rawData.valid2) failed_measurements[1]++;
+        if (!rawData.valid3) failed_measurements[2]++;
+        
+        if ((prev_valid1 && !rawData.valid1) || (prev_valid2 && !rawData.valid2) || (prev_valid3 && !rawData.valid3)) {
+            if (millis() - lastStateChange > 1000) { // Solo reportar cambios cada segundo
+                Serial.printf("[UWB_CORE] Estado cambió: A1:%d->%d, A2:%d->%d, A3:%d->%d\n", 
+                             prev_valid1, rawData.valid1, prev_valid2, rawData.valid2, prev_valid3, rawData.valid3);
+                lastStateChange = millis();
+            }
+        }
+        
+        // Estadísticas cada 30 segundos
+        static unsigned long lastStats = 0;
+        if (millis() - lastStats > 30000) {
+            Serial.printf("[UWB_STATS] Total:%lu, Fallos A1:%lu(%.1f%%), A2:%lu(%.1f%%), A3:%lu(%.1f%%)\n",
+                         total_measurements,
+                         failed_measurements[0], (failed_measurements[0] * 100.0) / total_measurements,
+                         failed_measurements[1], (failed_measurements[1] * 100.0) / total_measurements,
+                         failed_measurements[2], (failed_measurements[2] * 100.0) / total_measurements);
+            lastStats = millis();
+        }
+        
+        prev_valid1 = rawData.valid1;
+        prev_valid2 = rawData.valid2;
+        prev_valid3 = rawData.valid3;
+        
+        // Delay más largo entre ciclos completos para estabilidad
+        vTaskDelay(pdMS_TO_TICKS(50)); // 50ms = 20 Hz máximo
     }
 }
 
@@ -197,43 +296,78 @@ void UWBCore_startTask() {
 }
 
 bool UWBCore_getRawData(UWBRawData& data) {
-    // Leer datos de forma thread-safe (siempre devolver los más recientes)
-    portENTER_CRITICAL(&uwbMutex);
-    data.distance1 = g_uwb_raw_data.distance1;
-    data.distance2 = g_uwb_raw_data.distance2;
-    data.distance3 = g_uwb_raw_data.distance3;
-    data.valid1 = g_uwb_raw_data.valid1;
-    data.valid2 = g_uwb_raw_data.valid2;
-    data.valid3 = g_uwb_raw_data.valid3;
-    data.timestamp = g_uwb_raw_data.timestamp;
-    bool dataReady = g_uwb_data_ready;
-    if (g_uwb_data_ready) {
-        g_uwb_data_ready = false; // Marcar como leído solo si había datos nuevos
+    // Leer datos de forma thread-safe usando semáforo
+    if (xSemaphoreTake(uwbSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
+        data.distance1 = g_uwb_raw_data.distance1;
+        data.distance2 = g_uwb_raw_data.distance2;
+        data.distance3 = g_uwb_raw_data.distance3;
+        data.valid1 = g_uwb_raw_data.valid1;
+        data.valid2 = g_uwb_raw_data.valid2;
+        data.valid3 = g_uwb_raw_data.valid3;
+        data.timestamp = g_uwb_raw_data.timestamp;
+        bool dataReady = g_uwb_data_ready;
+        if (g_uwb_data_ready) {
+            g_uwb_data_ready = false; // Marcar como leído solo si había datos nuevos
+        }
+        xSemaphoreGive(uwbSemaphore);
+        return true;
     }
-    portEXIT_CRITICAL(&uwbMutex);
     
-    return true; // Siempre devolver datos (aunque sean viejos)
+    // Si no se puede obtener el semáforo, devolver datos por defecto
+    data.distance1 = NAN;
+    data.distance2 = NAN;
+    data.distance3 = NAN;
+    data.valid1 = false;
+    data.valid2 = false;
+    data.valid3 = false;
+    data.timestamp = millis();
+    
+    return false;
 }
 
-float UWBCore_getMeasurementFrequency() {
-    static unsigned long lastMeasurementCount = 0;
-    static unsigned long lastCheckTime = 0;
-    static float frequency = 0.0;
+void UWBCore_diagnostics() {
+    Serial.println("\n=== DIAGNÓSTICO UWB ===");
     
-    unsigned long currentTime = millis();
-    unsigned long currentCount = g_uwb_measurement_count;
+    // Verificar conectividad SPI con cada módulo
+    Serial.println("Verificando conectividad SPI...");
     
-    if (lastCheckTime > 0 && currentTime > lastCheckTime) {
-        unsigned long timeInterval = currentTime - lastCheckTime;
-        unsigned long countInterval = currentCount - lastMeasurementCount;
-        
-        if (timeInterval > 0) {
-            frequency = (countInterval * 1000.0) / timeInterval;
-        }
+    // Anchor 1 - Leer registro de identificación
+    uint32_t dev_id1 = anchor1.read(0x00, 0x04); // Registro DEV_ID
+    Serial.printf("Anchor 1 - Device ID: 0x%08X %s\n", dev_id1, 
+                 (dev_id1 == 0xDECA0302 || dev_id1 != 0x00000000) ? "(OK)" : "(ERROR - Sin respuesta SPI)");
+    
+    // Anchor 2  
+    uint32_t dev_id2 = anchor2.read(0x00, 0x04);
+    Serial.printf("Anchor 2 - Device ID: 0x%08X %s\n", dev_id2,
+                 (dev_id2 == 0xDECA0302 || dev_id2 != 0x00000000) ? "(OK)" : "(ERROR - Sin respuesta SPI)");
+    
+    // Anchor 3
+    uint32_t dev_id3 = anchor3.read(0x00, 0x04);
+    Serial.printf("Anchor 3 - Device ID: 0x%08X %s\n", dev_id3,
+                 (dev_id3 == 0xDECA0302 || dev_id3 != 0x00000000) ? "(OK)" : "(ERROR - Sin respuesta SPI)");
+    
+    // Estado actual de las mediciones - thread-safe
+    UWBRawData current_data;
+    bool data_available = UWBCore_getRawData(current_data);
+    
+    Serial.printf("\nEstado actual:\n");
+    Serial.printf("- Total mediciones: %lu\n", g_uwb_measurement_count);
+    Serial.printf("- Última medición: %lu ms ago\n", millis() - g_uwb_last_measurement_time);
+    Serial.printf("- Datos disponibles: %s\n", data_available ? "SÍ" : "NO");
+    Serial.printf("- Datos válidos: A1=%d, A2=%d, A3=%d\n", 
+                 current_data.valid1, current_data.valid2, current_data.valid3);
+    Serial.printf("- Distancias: A1=%.1f, A2=%.1f, A3=%.1f cm\n",
+                 current_data.distance1, current_data.distance2, current_data.distance3);
+    
+    Serial.println("======================\n");
+}
+
+unsigned long UWBCore_getMeasurementCount() {
+    // Thread-safe access al contador
+    unsigned long count = 0;
+    if (xSemaphoreTake(uwbSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
+        count = g_uwb_measurement_count;
+        xSemaphoreGive(uwbSemaphore);
     }
-    
-    lastCheckTime = currentTime;
-    lastMeasurementCount = currentCount;
-    
-    return frequency;
+    return count;
 }

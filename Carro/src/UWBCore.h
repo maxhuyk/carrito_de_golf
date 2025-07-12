@@ -24,7 +24,5 @@ void UWBCore_task(void* parameter);
 // Funciones para Core 1 (procesamiento)
 bool UWBCore_getRawData(UWBRawData& data);
 void UWBCore_startTask();
-
-// Obtiene la frecuencia real de medición del Core 0
-float UWBCore_getMeasurementFrequency();
-float UWBCore_getMeasurementFrequency(); // Nueva función
+void UWBCore_diagnostics(); // Nueva función de diagnóstico
+unsigned long UWBCore_getMeasurementCount(); // Thread-safe measurement count

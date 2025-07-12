@@ -12,12 +12,31 @@ static const unsigned long HEARTBEAT_INTERVAL = 5000; // 5 segundos
 void RPiComm_setup() {
     RPiSerial.begin(RPI_UART_SPEED, SERIAL_8N1, RPI_UART_RX_PIN, RPI_UART_TX_PIN);
     
+    // Configurar pines ADC específicamente
     pinMode(CURRENT_L_PIN, INPUT);
     pinMode(CURRENT_R_PIN, INPUT);
     pinMode(BATTERY_V_PIN, INPUT);
     
+    // Configuración ADC más específica
     analogReadResolution(12);
     analogSetAttenuation(ADC_11db);
+    
+    // Verificar que los pines ADC son válidos
+    Serial.printf("[RPiComm] Configurando ADC - Pin corriente L: %d, R: %d, Batería: %d\n", 
+                 CURRENT_L_PIN, CURRENT_R_PIN, BATTERY_V_PIN);
+    
+    // Test inicial de lecturas ADC
+    delay(100);
+    int test_adc_l = analogRead(CURRENT_L_PIN);
+    int test_adc_r = analogRead(CURRENT_R_PIN);
+    int test_adc_bat = analogRead(BATTERY_V_PIN);
+    
+    Serial.printf("[RPiComm] Test ADC inicial - L:%d, R:%d, Bat:%d (rango esperado: 100-4000)\n", 
+                 test_adc_l, test_adc_r, test_adc_bat);
+    
+    if (test_adc_l == 0 && test_adc_r == 0) {
+        Serial.println("[RPiComm] WARNING: Sensores de corriente parecen desconectados (ADC=0)");
+    }
     
     Serial.println("[RPiComm] UART2 ready");
 }
@@ -63,9 +82,23 @@ void RPiComm_sendUWBData(float distances[3], bool anchor_status[3],
     doc["timestamp"] = millis();
     
     // Datos de distancias raw de cada anchor
-    doc["distances"]["a1"] = anchor_status[0] ? distances[0] : NAN;
-    doc["distances"]["a2"] = anchor_status[1] ? distances[1] : NAN;
-    doc["distances"]["a3"] = anchor_status[2] ? distances[2] : NAN;
+    if (anchor_status[0] && !isnan(distances[0])) {
+        doc["distances"]["a1"] = distances[0];
+    } else {
+        doc["distances"]["a1"] = nullptr;
+    }
+    
+    if (anchor_status[1] && !isnan(distances[1])) {
+        doc["distances"]["a2"] = distances[1];
+    } else {
+        doc["distances"]["a2"] = nullptr;
+    }
+    
+    if (anchor_status[2] && !isnan(distances[2])) {
+        doc["distances"]["a3"] = distances[2];
+    } else {
+        doc["distances"]["a3"] = nullptr;
+    }
     
     // Estado de cada anchor
     doc["anchor_status"]["a1"] = anchor_status[0];
@@ -82,8 +115,8 @@ void RPiComm_sendUWBData(float distances[3], bool anchor_status[3],
         doc["position"]["y"] = nullptr;
     }
     
-    // Estadísticas de rendimiento
-    doc["stats"]["frequency"] = frequency;
+    // Estadísticas de rendimiento - asegurar que frequency no sea NAN
+    doc["stats"]["frequency"] = isnan(frequency) ? 0.0 : frequency;
     doc["stats"]["count"] = count;
     
     // Enviar JSON
@@ -100,27 +133,44 @@ void RPiComm_sendRawUWBData(float distances[3], bool anchor_status[3],
     doc["timestamp"] = millis();
     
     // === DATOS UWB ===
-    // Distancias raw de cada anchor (en cm)
-    doc["uwb"]["d1"] = anchor_status[0] ? distances[0] : NAN;
-    doc["uwb"]["d2"] = anchor_status[1] ? distances[1] : NAN;
-    doc["uwb"]["d3"] = anchor_status[2] ? distances[2] : NAN;
+    // Distancias raw de cada anchor (en cm) - convertir NAN a null
+    if (anchor_status[0] && !isnan(distances[0])) {
+        doc["uwb"]["d1"] = distances[0];
+    } else {
+        doc["uwb"]["d1"] = nullptr;
+    }
+    
+    if (anchor_status[1] && !isnan(distances[1])) {
+        doc["uwb"]["d2"] = distances[1];
+    } else {
+        doc["uwb"]["d2"] = nullptr;
+    }
+    
+    if (anchor_status[2] && !isnan(distances[2])) {
+        doc["uwb"]["d3"] = distances[2];
+    } else {
+        doc["uwb"]["d3"] = nullptr;
+    }
     
     // Estado de conexión de cada anchor
     doc["uwb"]["s1"] = anchor_status[0];
     doc["uwb"]["s2"] = anchor_status[1];
     doc["uwb"]["s3"] = anchor_status[2];
     
-    // Frecuencia de medición del Core 0
-    doc["uwb"]["freq"] = frequency;
+    // Frecuencia de medición del Core 0 (eliminado por rendimiento)
+    doc["uwb"]["freq"] = 0.0;  // Siempre 0.0, no NAN
     doc["uwb"]["count"] = count;
     
     // === DATOS DEL SISTEMA ===
-    // Voltaje de batería
-    doc["power"]["battery_v"] = getBatteryVoltage();
+    // Voltaje de batería - verificar que no sea NAN
+    float battery_v = RPiComm_readBatteryVoltage();
+    doc["power"]["battery_v"] = isnan(battery_v) ? 0.0 : battery_v;
     
-    // Corrientes de motores
-    doc["power"]["motor_l_a"] = getMotorCurrent(0);  // Motor izquierdo
-    doc["power"]["motor_r_a"] = getMotorCurrent(1);  // Motor derecho
+    // Corrientes de motores - verificar que no sean NAN
+    float motor_l_current = RPiComm_readCurrentSensor(CURRENT_L_PIN);
+    float motor_r_current = RPiComm_readCurrentSensor(CURRENT_R_PIN);
+    doc["power"]["motor_l_a"] = isnan(motor_l_current) ? 0.0 : motor_l_current;  // Motor izquierdo
+    doc["power"]["motor_r_a"] = isnan(motor_r_current) ? 0.0 : motor_r_current;  // Motor derecho
     
     // Enviar JSON completo
     String output;
@@ -202,12 +252,24 @@ float RPiComm_readBatteryVoltage() {
     
     float adc_average = sum / (float)samples;
     
+    // DEBUG: Imprimir valores ADC
+    static unsigned long lastDebug = 0;
+    if (millis() - lastDebug > 5000) {  // Debug cada 5 segundos
+        Serial.printf("[BATTERY] ADC raw: %.1f, ", adc_average);
+        lastDebug = millis();
+    }
+    
     // Convertir ADC a voltaje del divisor
     float voltage_divider = (adc_average / ADC_RESOLUTION) * ADC_VREF;
     
     // Calcular voltaje real de la batería
     // V_battery = V_divider * (R1 + R2) / R2
     float battery_voltage = voltage_divider * (BATTERY_R1 + BATTERY_R2) / BATTERY_R2;
+    
+    // DEBUG: Continuar debug
+    if (millis() - lastDebug < 100) {  // Solo si acabamos de hacer debug arriba
+        Serial.printf("V_div: %.3fV, V_bat: %.2fV\n", voltage_divider, battery_voltage);
+    }
     
     return battery_voltage;
 }
@@ -227,12 +289,30 @@ float RPiComm_readCurrentSensor(int pin) {
     // Convertir ADC a voltaje
     float voltage = (adc_average / ADC_RESOLUTION) * ADC_VREF;
     
-    // Convertir voltaje a corriente (depende del sensor)
-    // Ejemplo para sensor ACS712 (5A): 2.5V = 0A, 185mV/A
-    // Ajustar según tu sensor específico
-    float current = (voltage - 2.5) / 0.185; // Para ACS712-5A
+    // Convertir voltaje a corriente para DRV8701
+    const float AV = 20.0;          // Ganancia del amplificador de shunt
+    const float V_OFF = 1.65;       // Voltaje de offset teórico
+    const float R_SENSE = 0.005;    // Resistencia de sensado en Ohms (5 miliohms)
     
-    return abs(current); // Retornar valor absoluto
+    // Calcular corriente con fórmula original
+    float current = (voltage - V_OFF) / (AV * R_SENSE);
+    
+    // SIMPLE: Sumar 16.5A para corregir offset (como pediste)
+    current = current + 16.5;
+    
+    // DEBUG: Imprimir valores cada 5 segundos
+    static unsigned long lastCurrentDebug = 0;
+    if (millis() - lastCurrentDebug > 5000) {
+        Serial.printf("[CURRENT] Pin=%d, ADC=%.1f, V=%.3f -> I=%.3fA\n", 
+                     pin, adc_average, voltage, current);
+        lastCurrentDebug = millis();
+    }
+    
+    // Filtrar valores negativos y limitar máximo
+    if (current < 0.0) current = 0.0;
+    if (current > 25.0) current = 25.0;
+    
+    return current;
 }
 
 void RPiComm_sendHeartbeat() {

@@ -21,6 +21,16 @@ bool UWBManager_update(float &tag_x, float &tag_y) {
     UWBRawData rawData;
     UWBCore_getRawData(rawData);
     
+    // DEBUG: Imprimir datos recibidos del Core 0
+    static unsigned long lastDebug = 0;
+    if (millis() - lastDebug > 3000) {  // Debug cada 3 segundos
+        Serial.printf("[UWBManager] Raw from Core0: d1=%.1f(v=%d), d2=%.1f(v=%d), d3=%.1f(v=%d)\n",
+                     rawData.distance1, rawData.valid1,
+                     rawData.distance2, rawData.valid2,
+                     rawData.distance3, rawData.valid3);
+        lastDebug = millis();
+    }
+    
     // Extraer distancias del Core 0
     float distance1 = rawData.distance1;
     float distance2 = rawData.distance2;
@@ -53,10 +63,10 @@ void UWBManager_getAnchorStatus(bool status[NUM_ANCHORS]) {
     }
 }
 
-float UWBManager_getMeasurementFrequency() {
-    return UWBCore_getMeasurementFrequency(); // Usar la frecuencia del Core 0
+unsigned long UWBManager_getMeasurementCount() {
+    return UWBCore_getMeasurementCount();
 }
 
-unsigned long UWBManager_getMeasurementCount() {
-    return g_uwb_measurement_count;
+void UWBManager_runDiagnostics() {
+    UWBCore_diagnostics();
 }

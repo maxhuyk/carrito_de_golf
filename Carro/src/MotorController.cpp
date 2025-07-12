@@ -14,8 +14,8 @@
 #define CURRR 39  // SENSOR_VN
 
 // --- PWM ESP32 ---
-#define PWM_FREQ 20000
-#define PWM_RES 8
+#define PWM_FREQ 20000  // 20kHz - frecuencia original que funcionaba bien
+#define PWM_RES 8       // 8 bits = 0-255
 #define CH_L1 0
 #define CH_L2 1
 #define CH_R1 2
@@ -47,16 +47,12 @@ void enableMotors() {
     Serial.println("[PWM] Motores activados");
 }
 
-// pwm: 0 a 100, dir: true=adelante, false=atrás
+// pwm: 0 a 100, dir: true=adelante, false=atrás (COMO EL TEST ORIGINAL)
 void setMotorL(int pwm, bool dir) {
     pwm = constrain(pwm, 0, 100);
     int duty = map(pwm, 0, 100, 0, 255);
-    
-    // Solo activar si hay PWM, sino mantener el estado actual
-    if (pwm > 0) {
-        digitalWrite(ENABLE_MOTORS, HIGH);
-    }
-    
+    digitalWrite(ENABLE_MOTORS, HIGH);  // Enable SIEMPRE activo como en el test
+    Serial.printf("[PWM] Izq: ENABLE=%d, DIR=%s, PWM=%d (duty=%d)\n", digitalRead(ENABLE_MOTORS), dir ? "FWD" : "REV", pwm, duty);
     if (dir) {
         ledcWrite(CH_L1, duty);
         ledcWrite(CH_L2, 0);
@@ -66,21 +62,47 @@ void setMotorL(int pwm, bool dir) {
     }
 }
 
+// NUEVA: Función directa sin mapeo - pwm: 0 a 255 (SIN UMBRALES)
+void setMotorL_direct(int pwm, bool dir) {
+    pwm = constrain(pwm, 0, 255);
+    digitalWrite(ENABLE_MOTORS, HIGH);  // Enable SIEMPRE activo
+    Serial.printf("[MOTOR_L_DIRECT] PWM=%d, Dir=%s\n", pwm, dir ? "FWD" : "REV");
+    
+    if (dir) {
+        ledcWrite(CH_L1, pwm);
+        ledcWrite(CH_L2, 0);
+    } else {
+        ledcWrite(CH_L1, 0);
+        ledcWrite(CH_L2, pwm);
+    }
+}
+
 void setMotorR(int pwm, bool dir) {
     pwm = constrain(pwm, 0, 100);
     int duty = map(pwm, 0, 100, 0, 255);
-    
-    // Solo activar si hay PWM, sino mantener el estado actual
-    if (pwm > 0) {
-        digitalWrite(ENABLE_MOTORS, HIGH);
-    }
-    
+    digitalWrite(ENABLE_MOTORS, HIGH);  // Enable SIEMPRE activo como en el test
+    Serial.printf("[PWM] Der: ENABLE=%d, DIR=%s, PWM=%d (duty=%d)\n", digitalRead(ENABLE_MOTORS), dir ? "FWD" : "REV", pwm, duty);
     if (dir) {
         ledcWrite(CH_R1, duty);
         ledcWrite(CH_R2, 0);
     } else {
         ledcWrite(CH_R1, 0);
         ledcWrite(CH_R2, duty);
+    }
+}
+
+// NUEVA: Función directa sin mapeo - pwm: 0 a 255 (SIN UMBRALES)
+void setMotorR_direct(int pwm, bool dir) {
+    pwm = constrain(pwm, 0, 255);
+    digitalWrite(ENABLE_MOTORS, HIGH);  // Enable SIEMPRE activo
+    Serial.printf("[MOTOR_R_DIRECT] PWM=%d, Dir=%s\n", pwm, dir ? "FWD" : "REV");
+    
+    if (dir) {
+        ledcWrite(CH_R1, pwm);
+        ledcWrite(CH_R2, 0);
+    } else {
+        ledcWrite(CH_R1, 0);
+        ledcWrite(CH_R2, pwm);
     }
 }
 
@@ -168,27 +190,37 @@ void executeMotorCommand(const MotorCommand& cmd) {
         return;
     }
     
-    if (!motorsEnabled) {
-        enableMotors();
-        motorsEnabled = true;
-    }
+    // CONVERTIR valores de GUI (-255 a +255) con zona muerta real
+    int left_speed = constrain(cmd.motor_left_speed, -255, 255);
+    int right_speed = constrain(cmd.motor_right_speed, -255, 255);
     
-    // Mapear velocidades de -255/+255 a -100/+100
-    int left_speed = map(cmd.motor_left_speed, -255, 255, -100, 100);
-    int right_speed = map(cmd.motor_right_speed, -255, 255, -100, 100);
+    // DEBUG
+    Serial.printf("[MOTOR_CMD] GUI values: L=%d, R=%d\n", left_speed, right_speed);
     
-    // Aplicar velocidades a los motores
-    if (left_speed >= 0) {
-        setMotorL(abs(left_speed), true);
+    // Definir zona muerta real (PWM duty mínimo para moverse)
+    const int DEADZONE_PWM = 60; // duty mínimo real (0-255)
+    // Mapeo: GUI 0 -> 0, GUI 1-255 -> 60-255 (duty)
+    int left_pwm, right_pwm;
+    if (abs(left_speed) == 0) {
+        left_pwm = 0;
     } else {
-        setMotorL(abs(left_speed), false);
+        left_pwm = map(abs(left_speed), 1, 255, DEADZONE_PWM, 100); // 100 en escala 0-100
+        if (left_pwm < DEADZONE_PWM) left_pwm = DEADZONE_PWM;
     }
-    
-    if (right_speed >= 0) {
-        setMotorR(abs(right_speed), true);
+    if (abs(right_speed) == 0) {
+        right_pwm = 0;
     } else {
-        setMotorR(abs(right_speed), false);
+        right_pwm = map(abs(right_speed), 1, 255, DEADZONE_PWM, 100);
+        if (right_pwm < DEADZONE_PWM) right_pwm = DEADZONE_PWM;
     }
+    bool left_dir = (left_speed >= 0);
+    bool right_dir = (right_speed >= 0);
+    Serial.printf("[MOTOR_CMD] Converted: L_PWM=%d(dir=%s), R_PWM=%d(dir=%s)\n", 
+                 left_pwm, left_dir ? "FWD" : "REV", 
+                 right_pwm, right_dir ? "FWD" : "REV");
+    setMotorL(left_pwm, left_dir);
+    setMotorR(right_pwm, right_dir);
+    motorsEnabled = true;
 }
 
 void setMotorSpeed(uint8_t motor_id, int8_t speed) {

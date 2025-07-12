@@ -18,11 +18,11 @@ void UWBManager_getDistances(float distances[NUM_ANCHORS]);
 // Obtiene el estado de conexión de cada anchor
 void UWBManager_getAnchorStatus(bool status[NUM_ANCHORS]);
 
-// Obtiene la frecuencia de medición actual en Hz
-float UWBManager_getMeasurementFrequency();
-
 // Obtiene el número total de mediciones realizadas
 unsigned long UWBManager_getMeasurementCount();
 
 // Obtiene el timestamp de la última medición
 unsigned long UWBManager_getLastMeasurementTime();
+
+// Nueva función de diagnóstico
+void UWBManager_runDiagnostics();

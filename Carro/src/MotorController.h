@@ -15,6 +15,8 @@ void enableMotors();
 void disableMotors();
 void setMotorL(int pwm, bool dir);
 void setMotorR(int pwm, bool dir);
+void setMotorL_direct(int pwm, bool dir);  // Nueva: PWM directo 0-255
+void setMotorR_direct(int pwm, bool dir);  // Nueva: PWM directo 0-255
 
 // Funciones de monitoreo
 float getBatteryVoltage();        // Voltaje de batería en V
