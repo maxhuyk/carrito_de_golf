@@ -63,12 +63,34 @@ class Trilaterator:
             Position2D object with calculated position
         """
         try:
-            # Convert distances from cm to mm
-            distances_mm = [d * 10.0 for d in distances]
+            # Validate inputs
+            if not distances or not anchor_status:
+                print("DEBUG: Empty distances or anchor_status")
+                return Position2D(x=0.0, y=0.0, valid=False, error=float('inf'))
             
-            # Check if we have at least 3 valid measurements
+            if len(distances) != 3 or len(anchor_status) != 3:
+                print(f"DEBUG: Invalid array lengths - distances: {len(distances)}, status: {len(anchor_status)}")
+                return Position2D(x=0.0, y=0.0, valid=False, error=float('inf'))
+            
+            # Check for None values and replace with NaN
+            clean_distances = []
+            for i, d in enumerate(distances):
+                if d is None:
+                    print(f"DEBUG: Distance {i+1} is None, replacing with NaN")
+                    clean_distances.append(float('nan'))
+                else:
+                    clean_distances.append(float(d))
+            
+            print(f"DEBUG: Clean distances: {clean_distances}, Status: {anchor_status}")
+            
+            # Convert distances from cm to mm
+            distances_mm = [d * 10.0 if not math.isnan(d) else float('nan') for d in clean_distances]
+            
+            # Check if we have at least 2 valid measurements (minimum for 2D trilateration)
             valid_count = sum(anchor_status)
-            if valid_count < 3:
+            print(f"DEBUG: Valid anchors count: {valid_count}")
+            if valid_count < 2:
+                print("DEBUG: Insufficient valid anchors (need at least 2)")
                 return Position2D(x=0.0, y=0.0, valid=False, error=float('inf'))
             
             # Use 2D trilateration (assuming tag is at same Z level as anchors 1&2)
@@ -99,10 +121,17 @@ class Trilaterator:
                     valid_anchors.append(anchor)
                     valid_distances.append(distance)
             
-            if len(valid_anchors) < 3:
+            print(f"DEBUG: Found {len(valid_anchors)} valid anchors")
+            
+            if len(valid_anchors) < 2:
+                print("DEBUG: Need at least 2 valid anchors for trilateration")
                 return Position2D(x=0.0, y=0.0, valid=False, error=float('inf'))
             
-            # Use first 3 valid anchors for trilateration
+            # Handle 2-anchor case (intersection of two circles)
+            if len(valid_anchors) == 2:
+                return self._trilaterate_2_anchors(valid_anchors, valid_distances)
+            
+            # Use first 3 valid anchors for full trilateration
             if len(valid_anchors) > 3:
                 valid_anchors = valid_anchors[:3]
                 valid_distances = valid_distances[:3]
@@ -147,6 +176,75 @@ class Trilaterator:
             
         except Exception as e:
             self.logger.error(f"2D trilateration error: {e}")
+            return Position2D(x=0.0, y=0.0, valid=False, error=float('inf'))
+    
+    def _trilaterate_2_anchors(self, anchors: List[AnchorPosition], distances: List[float]) -> Position2D:
+        """
+        Calculate position using 2 anchors (intersection of two circles)
+        
+        Args:
+            anchors: List of 2 anchor positions
+            distances: List of 2 distances in mm
+            
+        Returns:
+            Position2D object
+        """
+        try:
+            if len(anchors) != 2 or len(distances) != 2:
+                return Position2D(x=0.0, y=0.0, valid=False, error=float('inf'))
+            
+            # Get anchor positions and distances
+            x1, y1 = anchors[0].x, anchors[0].y
+            x2, y2 = anchors[1].x, anchors[1].y
+            r1, r2 = distances[0], distances[1]
+            
+            print(f"DEBUG: 2-anchor calculation: A1({x1},{y1}) r={r1:.1f}, A2({x2},{y2}) r={r2:.1f}")
+            
+            # Distance between anchors
+            d = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+            
+            # Check if circles intersect
+            if d > r1 + r2 or d < abs(r1 - r2) or d == 0:
+                print(f"DEBUG: Circles don't intersect or are identical. d={d:.1f}, r1+r2={r1+r2:.1f}")
+                return Position2D(x=0.0, y=0.0, valid=False, error=float('inf'))
+            
+            # Calculate intersection points
+            a = (r1**2 - r2**2 + d**2) / (2 * d)
+            h = math.sqrt(r1**2 - a**2)
+            
+            # Point on line between anchors
+            px = x1 + a * (x2 - x1) / d
+            py = y1 + a * (y2 - y1) / d
+            
+            # Two intersection points
+            x_pos1 = px + h * (y2 - y1) / d
+            y_pos1 = py - h * (x2 - x1) / d
+            
+            x_pos2 = px - h * (y2 - y1) / d
+            y_pos2 = py + h * (x2 - x1) / d
+            
+            # For now, choose the point closer to origin (you can improve this logic)
+            dist1 = math.sqrt(x_pos1**2 + y_pos1**2)
+            dist2 = math.sqrt(x_pos2**2 + y_pos2**2)
+            
+            if dist1 <= dist2:
+                x_final, y_final = x_pos1, y_pos1
+            else:
+                x_final, y_final = x_pos2, y_pos2
+            
+            # Convert back to cm
+            x_cm = x_final / 10.0
+            y_cm = y_final / 10.0
+            
+            # Calculate error (simplified for 2 anchors)
+            error = self._calculate_position_error(x_final, y_final, anchors, distances)
+            
+            print(f"DEBUG: 2-anchor result: ({x_cm:.1f}, {y_cm:.1f}) cm, error={error:.1f}")
+            
+            return Position2D(x=x_cm, y=y_cm, valid=True, error=error)
+            
+        except Exception as e:
+            self.logger.error(f"2-anchor trilateration failed: {e}")
             return Position2D(x=0.0, y=0.0, valid=False, error=float('inf'))
     
     def _calculate_position_error(self, x: float, y: float, 

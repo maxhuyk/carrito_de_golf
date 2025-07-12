@@ -40,7 +40,7 @@ class SystemData:
 class UARTCommunicator:
     """UART communication handler for ESP32"""
     
-    def __init__(self, port: str = '/dev/serial0', baudrate: int = 2000000):
+    def __init__(self, port: str = '/dev/ttyAMA0', baudrate: int = 115200):
         """
         Initialize UART communicator
         
@@ -119,20 +119,27 @@ class UARTCommunicator:
             if not line:
                 return None
             
+            # DEBUG: Print raw data received
+            print(f"RAW DATA: {repr(line)}")
+            
             # Parse JSON
             data = json.loads(line)
             
+            # DEBUG: Print parsed JSON
+            print(f"PARSED JSON: {data}")
+            
             # Verify this is system data
             if data.get('type') != 'system_data':
+                print(f"WARNING: Unknown data type: {data.get('type')}")
                 return None
             
             # Extract UWB data
             uwb_data = data.get('uwb', {})
             uwb = UWBData(
                 distances={
-                    'd1': uwb_data.get('d1', float('nan')),
-                    'd2': uwb_data.get('d2', float('nan')),
-                    'd3': uwb_data.get('d3', float('nan'))
+                    'd1': uwb_data.get('d1') if uwb_data.get('d1') is not None else float('nan'),
+                    'd2': uwb_data.get('d2') if uwb_data.get('d2') is not None else float('nan'),
+                    'd3': uwb_data.get('d3') if uwb_data.get('d3') is not None else float('nan')
                 },
                 anchor_status={
                     's1': uwb_data.get('s1', False),
