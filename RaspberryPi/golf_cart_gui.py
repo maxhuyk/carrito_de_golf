@@ -53,7 +53,7 @@ class GolfCartGUI:
         # Initialize components
         self.uart = UARTCommunicator(
             port=self.config.get('uart_port', '/dev/ttyAMA0'),
-            baudrate=self.config.get('uart_baudrate', 115200)
+            baudrate=self.config.get('uart_baudrate', 2000000)
         )
         self.trilaterator = Trilaterator()
         

@@ -7,7 +7,7 @@
 // Configuración de pines para UART2 (comunicación con Raspberry Pi)
 #define RPI_UART_RX_PIN 22
 #define RPI_UART_TX_PIN 21
-#define RPI_UART_SPEED 115200
+#define RPI_UART_SPEED 2000000
 
 // Pines de sensores
 #define CURRENT_L_PIN 36  // GPIO36 (VP)  - Corriente motor izquierdo

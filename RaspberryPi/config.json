@@ -1,6 +1,6 @@
 {
   "uart_port": "/dev/ttyAMA0",
-  "uart_baudrate": 115200,
+  "uart_baudrate": 2000000,
   "log_level": "INFO",
   "anchor_positions": {
     "anchor1": {"x": -280.0, "y": 0.0, "z": 0.0},
